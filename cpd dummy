@@ -1,0 +1,169 @@
+#include <Wire.h>
+#include <Adafruit_MCP9808.h>
+#include <BluetoothSerial.h>
+#include <ESP32Servo.h>
+
+Adafruit_MCP9808 mcp;
+BluetoothSerial SerialBT;
+Servo servo;  
+
+
+const int mosfetPin = 23;  
+const int servoPin = 13;   
+const int m1aPin = 26;    
+const int m1bPin = 27;     
+
+int speed = 3000;  
+int amplitude = 60;  
+int lowAmplitude = 60;
+int mediumAmplitude = 90;
+int highAmplitude = 120;
+int speed20bpm = 2000;
+int speed30bpm = 1500;
+int speed40bpm = 1300;
+int speed50bpm = 1000;
+
+
+const int timeFor20DegreesLeft = 300;
+const int timeFor30DegreesRight = 300;
+
+
+float temperature = 0.0;
+bool heatingActive = false;
+bool shouldMove = false; 
+bool isBreathing = false;  
+
+void setup() {
+  
+  Serial.begin(115200);
+  SerialBT.begin("DUMMY");
+  Serial.println("The device started, now you can pair it with Bluetooth!");
+
+  
+  if (!mcp.begin(0x18)) {
+    Serial.println("Couldn't find MCP9808!");
+    while (1);
+  }
+  mcp.setResolution(3);
+
+  
+  pinMode(mosfetPin, OUTPUT);
+  pinMode(m1aPin, OUTPUT);
+  pinMode(m1bPin, OUTPUT);
+  digitalWrite(mosfetPin, LOW);  
+  servo.attach(servoPin);
+
+  stopMotor();
+}
+
+void loop() {
+  
+  if (SerialBT.available()) {
+    String command = SerialBT.readString();
+    handleBluetoothCommand(command);
+  }
+
+  
+  if (isBreathing) {
+    simulateBreathingCycle(speed, amplitude);
+  }
+
+  if (shouldMove) {
+    moveMotorLeft(timeFor20DegreesLeft);
+    delay(500);
+    moveMotorRight(timeFor30DegreesRight);
+    delay(500);
+  }
+
+  if (heatingActive) {
+    manageTemperature();
+  }
+
+  delay(1000);  
+}
+
+void handleBluetoothCommand(String command) {
+  command.trim(); 
+  
+  if (command == "start") {
+    heatingActive = true;
+    shouldMove = true;
+    isBreathing = true;
+    SerialBT.println("System started");
+  } else if (command == "stop") {
+    heatingActive = false;
+    shouldMove = false;
+    isBreathing = false;
+    stopMotor();
+    digitalWrite(mosfetPin, LOW); 
+    SerialBT.println("System stopped");
+  } else if (command == "bpm20") {
+    speed = speed20bpm;
+    SerialBT.println("Speed set to 20 BPM");
+  } else if (command == "bpm30") {
+    speed = speed30bpm;
+    SerialBT.println("Speed set to 30 BPM");
+  } else if (command == "bpm40") {
+    speed = speed40bpm;
+    SerialBT.println("Speed set to 40 BPM");
+  } else if (command == "bpm50") {
+    speed = speed50bpm;
+    SerialBT.println("Speed set to 50 BPM");
+  } else if (command == "amplow") {
+    amplitude = lowAmplitude;
+    SerialBT.println("Amplitude set to low");
+  } else if (command == "ampmid") {
+    amplitude = mediumAmplitude;
+    SerialBT.println("Amplitude set to medium");
+  } else if (command == "amphigh") {
+    amplitude = highAmplitude;
+    SerialBT.println("Amplitude set to high");
+  } else {
+    SerialBT.println("Invalid command");
+  }
+}
+
+void simulateBreathingCycle(int speed, int amplitude) {
+  servo.write(amplitude); 
+  delay(speed / 2);
+  servo.write(0); 
+  delay(speed / 2);
+}
+
+void manageTemperature() {
+  temperature = mcp.readTempC();
+  Serial.print("Temperature: ");
+  Serial.print(temperature);
+  Serial.println(" *C");
+
+  if (temperature >= 37.0) {
+    digitalWrite(mosfetPin, LOW);  
+    Serial.println("Heating pad off");
+  } else if (temperature <= 35.0) {
+    digitalWrite(mosfetPin, HIGH); 
+    Serial.println("Heating pad on");
+  }
+
+  SerialBT.print("Temperature: ");
+  SerialBT.print(temperature);
+  SerialBT.println(" *C");
+}
+
+void moveMotorLeft(int duration) {
+  digitalWrite(m1aPin, HIGH);
+  digitalWrite(m1bPin, LOW);
+  delay(duration);
+  stopMotor();
+}
+
+void moveMotorRight(int duration) {
+  digitalWrite(m1aPin, LOW);
+  digitalWrite(m1bPin, HIGH);
+  delay(duration);
+  stopMotor();
+}
+
+void stopMotor() {
+  digitalWrite(m1aPin, LOW);
+  digitalWrite(m1bPin, LOW);
+}
